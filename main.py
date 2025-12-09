@@ -1,248 +1,210 @@
 import streamlit as st
-from datetime import date, timedelta
 import pandas as pd
-import numpy as np
 import yfinance as yf
-from prophet import Prophet
-from prophet.plot import plot_plotly
-from plotly import graph_objs as go
+import plotly.graph_objects as go
+from datetime import datetime, timedelta
 
-# Page Configuration
-st.set_page_config(
-    page_title="Indian Stock Forecast",
-    page_icon="📈",
-    layout="wide"
-)
+# Page config
+st.set_page_config(page_title="Indian Stocks", layout="wide")
 
-# App Header
-st.title("📈 Indian Stock Price Forecast App")
+# Title
+st.title("📈 Indian Stock Analysis")
 st.markdown("---")
 
-# Indian Stock Tickers
-indian_tickers = [
-    "RELIANCE.NS", "HDFCBANK.NS", "TCS.NS", "INFY.NS", "BHARTIARTL.NS", 
-    "ICICIBANK.NS", "ITC.NS", "HINDUNILVR.NS", "AXISBANK.NS", "BAJFINANCE.NS",
-    "LT.NS", "MARUTI.NS", "SBIN.NS", "BAJAJ-AUTO.NS", "HCLTECH.NS", "WIPRO.NS",
-    "ULTRACEMCO.NS", "SUNPHARMA.NS", "ASIANPAINT.NS", "TITAN.NS", "ONGC.NS",
-    "BAJAJFINSV.NS", "POWERGRID.NS", "JSWSTEEL.NS", "DMART.NS", "NESTLEIND.NS",
-    "HINDALCO.NS", "COALINDIA.NS", "BPCL.NS", "EICHERMOT.NS", "DRREDDY.NS",
-    "BHARATFORG.NS", "ADANIPORTS.NS", "TATAMOTORS.NS", "BRITANNIA.NS", "M&M.NS"
+# Indian stocks
+indian_stocks = [
+    ("Reliance", "RELIANCE.NS"),
+    ("HDFC Bank", "HDFCBANK.NS"),
+    ("TCS", "TCS.NS"),
+    ("Infosys", "INFY.NS"),
+    ("ICICI Bank", "ICICIBANK.NS"),
+    ("ITC", "ITC.NS"),
+    ("HUL", "HINDUNILVR.NS"),
+    ("Axis Bank", "AXISBANK.NS"),
+    ("Bajaj Finance", "BAJFINANCE.NS"),
+    ("SBI", "SBIN.NS"),
+    ("HCL Tech", "HCLTECH.NS"),
+    ("Wipro", "WIPRO.NS"),
+    ("Sun Pharma", "SUNPHARMA.NS"),
+    ("Asian Paints", "ASIANPAINT.NS"),
+    ("Titan", "TITAN.NS"),
+    ("ONGC", "ONGC.NS"),
+    ("Power Grid", "POWERGRID.NS"),
+    ("Nestle", "NESTLEIND.NS"),
+    ("Coal India", "COALINDIA.NS"),
+    ("Tata Motors", "TATAMOTORS.NS")
 ]
 
 # Sidebar
 with st.sidebar:
-    st.header("Settings")
+    st.header("⚙️ Settings")
     
-    selected_stock = st.selectbox(
-        "Select Indian Stock:",
-        indian_tickers,
-        index=0
+    # Create selection with names
+    stock_names = [s[0] for s in indian_stocks]
+    selected_name = st.selectbox("Select Company", stock_names)
+    
+    # Get ticker
+    selected_ticker = [s[1] for s in indian_stocks if s[0] == selected_name][0]
+    
+    # Time period
+    period = st.selectbox(
+        "Time Period",
+        ["1mo", "3mo", "6mo", "1y", "2y", "5y"],
+        index=3
     )
     
-    # Date range
-    end_date = date.today()
-    start_date = end_date - timedelta(days=365*3)  # 3 years
-    
-    col1, col2 = st.columns(2)
-    with col1:
-        start_date_input = st.date_input("Start Date", start_date)
-    with col2:
-        end_date_input = st.date_input("End Date", end_date)
-    
-    # Forecast settings
-    n_years = st.slider("Years to forecast:", 1, 3, 1)
-    period = n_years * 365
-    
-    if st.button("🔄 Refresh Data"):
-        st.cache_data.clear()
+    # Chart type
+    chart_type = st.radio("Chart Type", ["Line", "Candlestick"])
 
-# Data loading function
-@st.cache_data
-def load_data(ticker, start_date, end_date):
-    try:
-        # Download data
-        data = yf.download(
-            ticker,
-            start=start_date.strftime("%Y-%m-%d"),
-            end=end_date.strftime("%Y-%m-%d"),
-            progress=False
-        )
-        
-        if data.empty:
-            return None
-        
-        # Reset index
-        data = data.reset_index()
-        
-        # Ensure Date column exists
-        if 'Date' not in data.columns:
-            # Rename the first column to Date
-            data = data.rename(columns={data.columns[0]: 'Date'})
-        
-        # Convert Date to datetime
-        data['Date'] = pd.to_datetime(data['Date'])
-        
-        # Use Adj Close if available, otherwise Close
-        if 'Adj Close' in data.columns:
-            data['Close'] = data['Adj Close']
-        elif 'close' in [col.lower() for col in data.columns]:
-            for col in data.columns:
-                if 'close' in col.lower():
-                    data['Close'] = data[col]
-                    break
-        
-        return data
-    
-    except Exception as e:
-        st.error(f"Error loading data: {e}")
-        return None
+# Main content
+st.subheader(f"{selected_name} ({selected_ticker})")
 
 # Load data
-with st.spinner(f"Loading {selected_stock} data..."):
-    data = load_data(selected_stock, start_date_input, end_date_input)
+@st.cache_data
+def load_stock_data(ticker, period):
+    try:
+        stock = yf.Ticker(ticker)
+        data = stock.history(period=period)
+        return data
+    except:
+        return None
+
+# Load with spinner
+with st.spinner("Loading stock data..."):
+    data = load_stock_data(selected_ticker, period)
 
 if data is None or data.empty:
-    st.error("❌ Could not load data. Please try a different stock or date range.")
+    st.error("❌ Could not load data. Please try again.")
     
-    # Create sample data for demo
+    # Show sample data
     st.info("Showing sample data for demonstration...")
-    dates = pd.date_range(start=start_date_input, end=end_date_input, freq='B')
-    np.random.seed(42)
-    base_price = 1000
-    returns = np.random.randn(len(dates)) * 0.015
-    prices = base_price * np.exp(np.cumsum(returns))
+    
+    # Generate sample data
+    dates = pd.date_range(end=datetime.now(), periods=100, freq='D')
+    prices = 1000 + pd.Series(range(100)).cumsum() * 5 + pd.Series(np.random.randn(100).cumsum() * 20)
     
     data = pd.DataFrame({
-        'Date': dates,
+        'Open': prices * 0.99,
+        'High': prices * 1.02,
+        'Low': prices * 0.98,
         'Close': prices,
-        'Open': prices * 0.995,
-        'High': prices * 1.015,
-        'Low': prices * 0.985
-    })
+        'Volume': np.random.randint(100000, 1000000, 100)
+    }, index=dates)
+else:
+    st.success(f"✅ Loaded {len(data)} days of data")
 
-# Display current price
-if 'Close' in data.columns:
-    current_price = data['Close'].iloc[-1]
-    st.metric(f"Current Price ({selected_stock})", f"₹{current_price:,.2f}")
-
-# Tabs
-tab1, tab2, tab3 = st.tabs(["📊 Price Chart", "🔮 Forecast", "📋 Data"])
-
-with tab1:
-    # Price chart
-    st.subheader("Price Movement")
+# Display metrics
+if not data.empty:
+    col1, col2, col3, col4 = st.columns(4)
     
+    with col1:
+        current_price = data['Close'].iloc[-1]
+        st.metric("Current Price", f"₹{current_price:,.2f}")
+    
+    with col2:
+        if len(data) > 1:
+            prev_price = data['Close'].iloc[-2]
+            change = current_price - prev_price
+            change_pct = (change / prev_price) * 100
+            st.metric("Daily Change", f"₹{change:,.2f}", f"{change_pct:.2f}%")
+    
+    with col3:
+        st.metric("52 Week High", f"₹{data['High'].max():,.2f}")
+    
+    with col4:
+        st.metric("52 Week Low", f"₹{data['Low'].min():,.2f}")
+
+# Create chart
+st.subheader("Price Chart")
+
+if chart_type == "Line":
     fig = go.Figure()
     fig.add_trace(go.Scatter(
-        x=data['Date'],
+        x=data.index,
         y=data['Close'],
         mode='lines',
-        name='Closing Price',
+        name='Price',
         line=dict(color='blue', width=2)
     ))
+else:
+    fig = go.Figure(data=[go.Candlestick(
+        x=data.index,
+        open=data['Open'],
+        high=data['High'],
+        low=data['Low'],
+        close=data['Close'],
+        name='OHLC'
+    )])
+
+fig.update_layout(
+    title=f"{selected_name} Price",
+    xaxis_title="Date",
+    yaxis_title="Price (₹)",
+    height=500,
+    template="plotly_white"
+)
+
+st.plotly_chart(fig, use_container_width=True)
+
+# Show data table
+with st.expander("📊 View Data Table"):
+    st.dataframe(data.tail(20), use_container_width=True)
+
+# Additional analysis
+st.subheader("📈 Analysis")
+
+if not data.empty and len(data) > 20:
+    col1, col2 = st.columns(2)
     
-    fig.update_layout(
-        title=f"{selected_stock} Stock Price",
-        xaxis_title="Date",
-        yaxis_title="Price (₹)",
-        height=500,
-        template="plotly_white"
+    with col1:
+        st.markdown("**Returns Analysis**")
+        
+        # Calculate returns
+        returns = data['Close'].pct_change().dropna()
+        
+        if len(returns) > 0:
+            avg_return = returns.mean() * 100
+            volatility = returns.std() * 100
+            total_return = ((data['Close'].iloc[-1] - data['Close'].iloc[0]) / data['Close'].iloc[0]) * 100
+            
+            st.write(f"Average Daily Return: {avg_return:.2f}%")
+            st.write(f"Daily Volatility: {volatility:.2f}%")
+            st.write(f"Total Period Return: {total_return:.2f}%")
+    
+    with col2:
+        st.markdown("**Volume Analysis**")
+        if 'Volume' in data.columns:
+            avg_volume = data['Volume'].mean()
+            recent_volume = data['Volume'].iloc[-1]
+            
+            st.write(f"Average Volume: {avg_volume:,.0f}")
+            st.write(f"Recent Volume: {recent_volume:,.0f}")
+            
+            # Volume chart
+            fig_vol = go.Figure()
+            fig_vol.add_trace(go.Bar(
+                x=data.index,
+                y=data['Volume'],
+                name='Volume'
+            ))
+            fig_vol.update_layout(height=300, title="Trading Volume")
+            st.plotly_chart(fig_vol, use_container_width=True)
+
+# Download button
+if not data.empty:
+    csv = data.to_csv().encode('utf-8')
+    st.download_button(
+        label="📥 Download Data (CSV)",
+        data=csv,
+        file_name=f"{selected_name.replace(' ', '_')}_data.csv",
+        mime="text/csv"
     )
-    
-    st.plotly_chart(fig, use_container_width=True)
-
-with tab2:
-    # Forecasting
-    st.subheader("Price Forecast")
-    
-    if len(data) < 30:
-        st.warning(f"Need at least 30 days of data for forecasting. Currently: {len(data)} days")
-    else:
-        if st.button("🚀 Generate Forecast", type="primary"):
-            with st.spinner("Training forecast model..."):
-                try:
-                    # Prepare data for Prophet
-                    df_train = data[['Date', 'Close']].copy()
-                    df_train.columns = ['ds', 'y']
-                    df_train['ds'] = pd.to_datetime(df_train['ds'])
-                    
-                    # Train model
-                    model = Prophet(
-                        yearly_seasonality=True,
-                        weekly_seasonality=True,
-                        daily_seasonality=False
-                    )
-                    
-                    model.fit(df_train)
-                    
-                    # Create future dataframe
-                    future = model.make_future_dataframe(periods=period)
-                    
-                    # Generate forecast
-                    forecast = model.predict(future)
-                    
-                    # Plot forecast
-                    fig_forecast = plot_plotly(model, forecast)
-                    fig_forecast.update_layout(
-                        title=f"{selected_stock} {n_years}-Year Forecast",
-                        height=500,
-                        xaxis_title="Date",
-                        yaxis_title="Price (₹)"
-                    )
-                    
-                    st.plotly_chart(fig_forecast, use_container_width=True)
-                    
-                    # Show forecast summary
-                    st.subheader("Forecast Summary")
-                    
-                    col1, col2 = st.columns(2)
-                    
-                    with col1:
-                        last_price = df_train['y'].iloc[-1]
-                        st.metric("Current Price", f"₹{last_price:,.2f}")
-                    
-                    with col2:
-                        forecast_price = forecast['yhat'].iloc[-1]
-                        change_pct = ((forecast_price - last_price) / last_price) * 100
-                        st.metric(
-                            f"Forecast Price ({n_years} years)",
-                            f"₹{forecast_price:,.2f}",
-                            delta=f"{change_pct:.1f}%"
-                        )
-                    
-                except Exception as e:
-                    st.error(f"Forecast error: {str(e)}")
-                    st.info("Try with more historical data.")
-
-with tab3:
-    # Data tab
-    st.subheader("Historical Data")
-    
-    # Show data statistics
-    if not data.empty:
-        st.write(f"**Data Range:** {data['Date'].min().date()} to {data['Date'].max().date()}")
-        st.write(f"**Total Days:** {len(data)}")
-        
-        # Data preview
-        st.dataframe(
-            data.tail(20),
-            use_container_width=True
-        )
-        
-        # Download button
-        csv = data.to_csv(index=False).encode('utf-8')
-        st.download_button(
-            label="📥 Download CSV",
-            data=csv,
-            file_name=f"{selected_stock.replace('.NS', '')}_data.csv",
-            mime="text/csv"
-        )
 
 # Footer
 st.markdown("---")
 st.markdown("""
 <div style="text-align: center; color: gray;">
-    <p>📊 Indian Stock Forecast App • Data from Yahoo Finance • Powered by Prophet</p>
-    <p><em>⚠️ For educational purposes only. Not financial advice.</em></p>
+    <p>📊 Indian Stock Analysis • Data from Yahoo Finance</p>
+    <p><em>For educational purposes only. Not financial advice.</em></p>
 </div>
 """, unsafe_allow_html=True)
